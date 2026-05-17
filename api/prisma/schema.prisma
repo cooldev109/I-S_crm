@@ -1,0 +1,183 @@
+// Prisma schema — Phase 1 baseline.
+// Later phases add Proposal, Contract, Invoice. Designed so they slot in cleanly:
+// Project is the spine; new tables hang off it the same way Budget does.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  STUDIO
+}
+
+enum ProjectType {
+  REFORMA_INTEGRAL
+  REFORMA_PARCIAL
+  INTERIORISMO
+  ESTUDIO_PREVIO
+  OTRO
+}
+
+enum ProjectStatus {
+  NEW
+  BUDGETING
+  PROPOSAL
+  CONTRACT
+  ACTIVE
+  CLOSED
+  LOST
+}
+
+enum BudgetStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole @default(STUDIO)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  events Event[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String
+  // Origin / UTM-style attribution string. Free-form for Phase 1.
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+  messages Message[]
+
+  @@index([createdAt])
+}
+
+model Project {
+  id        String        @id @default(cuid())
+  clientId  String
+  type      ProjectType
+  status    ProjectStatus @default(NEW)
+  areaM2    Float?
+  scope     String?
+  // WhatsApp number that originated this project (E.164). Used by the
+  // budget review orchestrator to know which budget a "subir 1.1 a 200"
+  // command refers to — no extra session table needed.
+  originWaNumber String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  client   Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  budgets  Budget[]
+  messages Message[]
+  events   Event[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([originWaNumber])
+}
+
+model Budget {
+  id        String       @id @default(cuid())
+  projectId String
+  version   Int
+  status    BudgetStatus @default(DRAFT)
+
+  // Hierarchical chapter -> item structure, stored as JSON.
+  // Shape is BudgetChapter[] from @studio/shared. Real-world budgets from the
+  // studio follow this nesting (e.g. "1. TRABAJOS PREVIOS" -> items 1.1, 1.2 …).
+  chapters Json
+
+  // PEM (Presupuesto de Ejecución Material) — sum of every item across chapters.
+  // Always sin IVA. IVA is applied at invoice time, never on the budget itself.
+  pemTotal Float
+
+  // Honorarios profesionales — derived but stored for auditability:
+  // feeAmount = max(pemTotal * feePercent, feeMinAmount).
+  feePercent   Float @default(0.15)
+  feeMinAmount Float @default(4500)
+  feeAmount    Float
+
+  // Base imponible total = pemTotal + feeAmount (sin IVA).
+  taxBaseTotal Float
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, version])
+  @@index([projectId])
+}
+
+model Message {
+  id         String           @id @default(cuid())
+  clientId   String?
+  projectId  String?
+  direction  MessageDirection
+  // Sender/recipient WhatsApp number in E.164.
+  waNumber   String
+  body       String
+  // Raw provider payload, kept for debugging/audit.
+  rawPayload Json?
+  createdAt  DateTime         @default(now())
+
+  client  Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+// One pending intake per WhatsApp number — set when the parser understands an
+// intake message, cleared when the studio confirms ("sí") or cancels ("no").
+// We never act before confirmation (architectural rule).
+model PendingIntake {
+  id        String   @id @default(cuid())
+  // WhatsApp number of the studio member who sent the message (E.164).
+  waNumber  String   @unique
+  // Parsed shape from @studio/shared: ParsedIntakeMessage.
+  parsed    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Append-only audit trail. Every meaningful state change writes one row.
+model Event {
+  id        String   @id @default(cuid())
+  type      String
+  projectId String?
+  userId    String?
+  // Arbitrary structured context (old/new status, budget version, etc.).
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([type])
+  @@index([createdAt])
+}
