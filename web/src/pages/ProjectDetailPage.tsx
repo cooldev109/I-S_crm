@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft, RefreshCw, Sparkles, MessageCircle, Clock, type LucideIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import type {
   BudgetDto,
   ClientDto,
@@ -53,18 +55,29 @@ export function ProjectDetailPage() {
   };
 
   const regenerate = useMutation({
-    mutationFn: () => api.post(`/projects/${id}/budgets/generate`),
-    onSuccess: refreshAll,
+    mutationFn: () => api.post<BudgetDto>(`/projects/${id}/budgets/generate`),
+    onSuccess: (b) => {
+      refreshAll();
+      toast.success(`Borrador v${b.version} generado`);
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Error al regenerar'),
   });
   const refine = useMutation({
     mutationFn: () => api.post<BudgetDto & { usedAi: boolean }>(`/projects/${id}/budgets/refine`),
-    onSuccess: refreshAll,
+    onSuccess: (b) => {
+      refreshAll();
+      if (b.usedAi) {
+        toast.success(`Refinado por IA — nueva v${b.version}`);
+      } else {
+        toast.info('IA no configurada — se creó una versión igual al borrador');
+      }
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Error al refinar'),
   });
 
   const sortedBudgets = (budgets.data ?? []).slice().sort((a, b) => b.version - a.version);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected =
-    sortedBudgets.find((b) => b.id === selectedId) ?? sortedBudgets[0] ?? null;
+  const selected = sortedBudgets.find((b) => b.id === selectedId) ?? sortedBudgets[0] ?? null;
   const [compareWithId, setCompareWithId] = useState<string | null>(null);
   const compareWith = sortedBudgets.find((b) => b.id === compareWithId) ?? null;
 
@@ -75,70 +88,71 @@ export function ProjectDetailPage() {
   const p = project.data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div>
-        <Link to="/projects" className="text-sm text-muted hover:text-accent">
-          ← Proyectos
+        <Link
+          to="/projects"
+          className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-accent"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Proyectos
         </Link>
-        <div className="mt-2 flex items-baseline justify-between gap-3">
-          <h1 className="text-xl font-semibold">
-            {p.type}{' '}
-            <span className="text-base font-normal text-muted">· {p.id.slice(-6)}</span>
-          </h1>
+        <div className="mt-3 flex flex-wrap items-baseline justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{p.type}</h1>
+            <div className="mt-1 text-sm text-muted">
+              <span className="font-mono">#{p.id.slice(-6)}</span>
+              {' · '}
+              Cliente:{' '}
+              {client.data ? (
+                <Link to={`/clients/${client.data.id}`} className="text-accent hover:underline">
+                  {client.data.name}
+                </Link>
+              ) : (
+                '—'
+              )}
+              {' · '}
+              {p.areaM2 ? `${p.areaM2} m²` : 'sin área'}
+              {p.scope ? ` · ${p.scope}` : ''}
+            </div>
+          </div>
           <ProjectStatusBadge status={p.status} />
         </div>
-        <div className="mt-1 text-sm text-muted">
-          Cliente:{' '}
-          {client.data ? (
-            <Link to={`/clients/${client.data.id}`} className="text-accent hover:underline">
-              {client.data.name}
-            </Link>
-          ) : (
-            '—'
-          )}
-          {' · '}
-          {p.areaM2 ? `${p.areaM2} m²` : 'sin área'}
-          {p.scope ? ` · ${p.scope}` : ''}
-        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
+      {/* Action bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <ActionButton
+          Icon={RefreshCw}
+          label="Regenerar"
+          busy={regenerate.isPending}
           onClick={() => regenerate.mutate()}
-          disabled={regenerate.isPending}
-          className="rounded border border-border bg-surface px-3 py-1.5 text-sm hover:border-accent disabled:opacity-50"
-        >
-          {regenerate.isPending ? 'Regenerando…' : 'Regenerar borrador'}
-        </button>
-        <button
+        />
+        <ActionButton
+          Icon={Sparkles}
+          label="Refinar con IA"
+          busy={refine.isPending}
           onClick={() => refine.mutate()}
-          disabled={refine.isPending}
-          className="rounded border border-border bg-surface px-3 py-1.5 text-sm hover:border-accent disabled:opacity-50"
-        >
-          {refine.isPending ? 'Refinando…' : 'Refinar con IA'}
-        </button>
-        {refine.data && (
-          <span className="self-center text-xs text-muted">
-            {refine.data.usedAi ? 'IA aplicada' : 'IA no configurada — sin cambios'}
-          </span>
-        )}
+        />
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[1fr_280px]">
-        <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+        {/* Budget area */}
+        <div className="space-y-6 min-w-0">
           {sortedBudgets.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-surface p-8 text-center text-sm text-muted">
+            <div className="rounded-xl border border-dashed border-border bg-surface p-12 text-center text-sm text-muted">
               Sin presupuestos todavía.
             </div>
           ) : (
             <>
-              <div className="rounded-lg border border-border bg-surface p-3">
+              <div className="rounded-xl border border-border bg-surface p-4">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-muted">Versión:</span>
                   <select
                     value={selected?.id ?? ''}
                     onChange={(e) => setSelectedId(e.target.value)}
-                    className="rounded border border-border bg-surface px-2 py-1"
+                    className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/15"
                   >
                     {sortedBudgets.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -146,11 +160,11 @@ export function ProjectDetailPage() {
                       </option>
                     ))}
                   </select>
-                  <span className="ml-3 text-muted">Comparar con:</span>
+                  <span className="ml-2 text-muted">Comparar con:</span>
                   <select
                     value={compareWithId ?? ''}
                     onChange={(e) => setCompareWithId(e.target.value || null)}
-                    className="rounded border border-border bg-surface px-2 py-1"
+                    className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/15"
                   >
                     <option value="">— ninguna —</option>
                     {sortedBudgets
@@ -163,20 +177,18 @@ export function ProjectDetailPage() {
                   </select>
                 </div>
               </div>
+
               {selected && compareWith && (
-                <div className="rounded-lg border border-border bg-surface p-4">
+                <div className="rounded-xl border border-border bg-surface p-5">
                   <BudgetVersionDiff
-                    older={
-                      selected.version > compareWith.version ? compareWith : selected
-                    }
-                    newer={
-                      selected.version > compareWith.version ? selected : compareWith
-                    }
+                    older={selected.version > compareWith.version ? compareWith : selected}
+                    newer={selected.version > compareWith.version ? selected : compareWith}
                   />
                 </div>
               )}
+
               {selected && (
-                <div className="rounded-lg border border-border bg-surface p-4">
+                <div className="rounded-xl border border-border bg-surface p-5">
                   <BudgetViewer budget={selected} />
                 </div>
               )}
@@ -184,34 +196,74 @@ export function ProjectDetailPage() {
           )}
         </div>
 
+        {/* Sidebar */}
         <aside className="space-y-6">
-          <section className="rounded-lg border border-border bg-surface p-4">
-            <h2 className="mb-3 text-sm font-medium text-muted">Actividad</h2>
-            <Timeline events={events.data ?? []} />
+          <section className="rounded-xl border border-border bg-surface">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <Clock className="h-4 w-4 text-muted" />
+              <h2 className="text-sm font-medium">Actividad</h2>
+            </div>
+            <div className="max-h-80 overflow-y-auto px-4 py-3">
+              <Timeline events={events.data ?? []} />
+            </div>
           </section>
 
-          <section className="rounded-lg border border-border bg-surface p-4">
-            <h2 className="mb-3 text-sm font-medium text-muted">WhatsApp</h2>
-            {messages.data && messages.data.length > 0 ? (
-              <ul className="max-h-80 space-y-2 overflow-y-auto text-sm">
-                {messages.data.map((m) => (
-                  <li key={m.id}>
-                    <div className="text-xs text-muted">
-                      {m.direction === 'INBOUND' ? '← ' : '→ '}
-                      {fmtDateTime(m.createdAt)}
-                    </div>
-                    <div className="whitespace-pre-wrap rounded border border-border bg-bg p-2">
-                      {m.body}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-muted">Sin mensajes.</div>
-            )}
+          <section className="rounded-xl border border-border bg-surface">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <MessageCircle className="h-4 w-4 text-muted" />
+              <h2 className="text-sm font-medium">WhatsApp</h2>
+            </div>
+            <div className="max-h-96 overflow-y-auto px-4 py-3">
+              {messages.data && messages.data.length > 0 ? (
+                <ul className="space-y-3 text-sm">
+                  {messages.data.map((m) => {
+                    const inbound = m.direction === 'INBOUND';
+                    return (
+                      <li key={m.id} className={`flex ${inbound ? 'justify-start' : 'justify-end'}`}>
+                        <div className={`max-w-[85%] ${inbound ? '' : 'text-right'}`}>
+                          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">
+                            {inbound ? '← entrante' : 'saliente →'} · {fmtDateTime(m.createdAt)}
+                          </div>
+                          <div
+                            className={`inline-block whitespace-pre-wrap rounded-lg px-3 py-2 text-left text-xs ${
+                              inbound
+                                ? 'bg-bg border border-border'
+                                : 'bg-accent/10 text-ink border border-accent/20'
+                            }`}
+                          >
+                            {m.body}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="text-sm text-muted">Sin mensajes.</div>
+              )}
+            </div>
           </section>
         </aside>
       </div>
     </div>
+  );
+}
+
+interface ActionButtonProps {
+  Icon: LucideIcon;
+  label: string;
+  busy: boolean;
+  onClick: () => void;
+}
+function ActionButton({ Icon, label, busy, onClick }: ActionButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm font-medium transition hover:border-accent hover:bg-accent/5 hover:text-accent disabled:opacity-50"
+    >
+      <Icon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} strokeWidth={2} />
+      {busy ? `${label}…` : label}
+    </button>
   );
 }

@@ -7,6 +7,7 @@ import { ClientsPage } from './pages/ClientsPage';
 import { ClientDetailPage } from './pages/ClientDetailPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { BudgetsPage } from './pages/BudgetsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 /**
@@ -29,7 +30,7 @@ export function App() {
         <Route path="/clients/:id" element={<ClientDetailPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
-        <Route path="/budgets" element={<PlaceholderPage title="Presupuestos" />} />
+        <Route path="/budgets" element={<BudgetsPage />} />
         <Route path="/invoices" element={<PlaceholderPage title="Facturas" />} />
         <Route path="/users" element={<PlaceholderPage title="Usuarios" />} />
       </Route>

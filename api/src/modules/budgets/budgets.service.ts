@@ -189,6 +189,27 @@ export class BudgetsService {
     });
   }
 
+  /**
+   * One row per project = its **latest** budget. Powers the cross-project
+   * "Presupuestos" admin page. We only return the most recent version per
+   * project so the list reflects the current state of each project's budget.
+   */
+  async latestAcrossProjects(): Promise<Budget[]> {
+    // Postgres-flavoured DISTINCT ON via Prisma's groupBy isn't direct; the
+    // cleanest portable approach is: pull all budgets ordered desc by version
+    // and take the first for each projectId in JS. Small data volume — fine.
+    const all = await this.prisma.budget.findMany({
+      orderBy: [{ projectId: 'asc' }, { version: 'desc' }],
+    });
+    const latestById = new Map<string, Budget>();
+    for (const b of all) {
+      if (!latestById.has(b.projectId)) latestById.set(b.projectId, b);
+    }
+    return Array.from(latestById.values()).sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
+
   async findOne(id: string): Promise<Budget> {
     const budget = await this.prisma.budget.findUnique({ where: { id } });
     if (!budget) throw new NotFoundException(`Budget ${id} not found`);

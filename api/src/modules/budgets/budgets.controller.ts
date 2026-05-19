@@ -10,6 +10,12 @@ import { BudgetsService } from './budgets.service';
 export class BudgetsController {
   constructor(private readonly budgets: BudgetsService) {}
 
+  @Get('budgets')
+  async listLatest(): Promise<BudgetDto[]> {
+    const all = await this.budgets.latestAcrossProjects();
+    return all.map(BudgetsService.toDto);
+  }
+
   @Get('projects/:projectId/budgets')
   async list(@Param('projectId') projectId: string): Promise<BudgetDto[]> {
     const all = await this.budgets.list(projectId);
